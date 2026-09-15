@@ -1,4 +1,237 @@
-Team Iron - Fall 2026
+# GroceryWatch
+
+A mobile app for comparing grocery prices across nearby stores. Built for CS 411W at Old Dominion University.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Mobile app | React Native with Expo (TypeScript) |
+| Backend API | Node.js with Fastify (TypeScript) |
+| Database | PostgreSQL hosted on Supabase |
+| Scheduled ingestion | Node script run as a Railway cron service |
+| Product data | Open Food Facts, official retailer APIs |
+| Hosting | Railway |
+| CI | GitHub Actions |
+
+## Repository Structure
+
+```
+grocerywatch/
+├── mobile/              Expo mobile app
+├── api/                 Fastify API
+│   └── src/
+│       ├── index.ts     API server and routes
+│       ├── db.ts        Database connection pool
+│       └── jobs/
+│           └── ingest.ts  Scheduled ingestion job
+├── supabase/            Database migrations
+└── .github/workflows/   CI configuration
+```
+
+## Prerequisites
+
+Install these before starting:
+
+- [Node.js](https://nodejs.org/) LTS version (20 or newer)
+- [Git](https://git-scm.com/)
+- [VS Code](https://code.visualstudio.com/) (recommended; it shows hidden files like `.env`)
+- The **Expo Go** app on your phone (update it to the latest version from the app store)
+
+You will also need from the team:
+
+- Access to the GitHub repository
+- The Supabase **database password** (shared privately, never in the repo or group chat)
+
+## Getting Started
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/<org-or-user>/grocerywatch.git
+cd grocerywatch
+```
+
+### 2. Set up the API
+
+```bash
+cd api
+npm install
+```
+
+Create your local environment file by copying the example:
+
+```bash
+# macOS / Linux / Git Bash
+cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
+```
+
+Open `api/.env` and set `DATABASE_URL` to the Supabase connection string (see [Getting the Database URL](#getting-the-database-url) below). The file should contain exactly two lines, with no quotes and no spaces around `=`:
+
+```
+DATABASE_URL=postgresql://postgres.<project-ref>:<database-password>@<pooler-host>:5432/postgres
+PORT=3000
+```
+
+Start the API:
+
+```bash
+npm run dev
+```
+
+Confirm it works by opening http://localhost:3000/health in your browser. You should see:
+
+```json
+{"status":"ok","db":"connected"}
+```
+
+### 3. Set up the mobile app
+
+Open a **second terminal** and leave the API running in the first one.
+
+```bash
+cd mobile
+npm install
+```
+
+Create `mobile/.env` with the API address:
+
+```
+EXPO_PUBLIC_API_URL=http://localhost:3000
+```
+
+Start Expo:
+
+```bash
+npx expo start
+```
+
+The home screen should display **"API: ok, DB: connected."**
+
+## Running the App
+
+**In a web browser** (quickest for checking changes):
+
+```bash
+npx expo start --web
+```
+
+Use `EXPO_PUBLIC_API_URL=http://localhost:3000` in `mobile/.env`.
+
+**On your phone with Expo Go:**
+
+1. Connect your phone to the same Wi-Fi network as your computer.
+2. Find your computer's local IP address (`ipconfig` on Windows, `ifconfig` on macOS/Linux), for example `192.168.0.156`.
+3. Set `EXPO_PUBLIC_API_URL=http://<your-local-ip>:3000` in `mobile/.env`. Your phone cannot use `localhost`, because that would point to the phone itself.
+4. Run `npx expo start -c` and scan the QR code with Expo Go.
+
+Expo only reads `.env` when it starts, so restart it with `-c` (clears the cache) any time you change `mobile/.env`.
+
+## Getting the Database URL
+
+1. Open the GroceryWatch project in the [Supabase dashboard](https://supabase.com/dashboard).
+2. Click **Connect** at the top of the project page.
+3. Select the **Session pooler** connection type. Do not use the direct connection.
+4. Copy the URI and replace `[YOUR-PASSWORD]`, **including the brackets**, with the database password.
+
+A correct Session pooler string has the project ref attached to the username and a host ending in `pooler.supabase.com`:
+
+```
+postgresql://postgres.abcdefghijklmnopqrst:yourpassword@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+```
+
+## Database Migrations
+
+Schema changes live in `supabase/migrations/` so everyone's database matches. Link the CLI to the project once:
+
+```bash
+npx supabase login
+npx supabase link --project-ref <project-ref>
+```
+
+The project ref is the ID in the dashboard URL after `/project/`. The CLI will ask for the database password.
+
+To create and apply a migration:
+
+```bash
+npx supabase migration new <short-description>
+# edit the new SQL file in supabase/migrations/
+npx supabase db push
+```
+
+Coordinate with the team before pushing migrations, since everyone shares the same database.
+
+## Available Scripts
+
+Run these from the `api/` folder:
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Starts the API with auto-restart on code changes |
+| `npm run build` | Compiles TypeScript into `dist/` |
+| `npm start` | Runs the compiled API from `dist/` (used in production) |
+| `npm run ingest` | Runs the ingestion job once (run `npm run build` first) |
+
+## Troubleshooting
+
+**`/health` returns `connect ETIMEDOUT` with an IPv6 address (like `2600:...`)**
+You are using the direct connection string. Switch to the **Session pooler** string. The direct connection is IPv6-only on the free plan and most networks, including Railway, can't reach it.
+
+**`password authentication failed for user "postgres"`**
+- Use the **database password** set when the project was created, not your Supabase account login.
+- Make sure the `[ ]` brackets around the password placeholder were removed.
+- Check that the username includes the project ref (`postgres.abcd...`), not just `postgres`.
+- If unsure of the password, ask the team rather than resetting it, since a reset breaks everyone's `.env` and the Railway deployment.
+
+**`/health` returns an error after editing `.env`**
+`npm run dev` does not always reload `.env`. Stop it with Ctrl+C and start it again.
+
+**`'expo' is not recognized as an internal or external command`**
+Dependencies aren't installed. Run `npm install` inside the `mobile/` folder.
+
+**App shows "API unreachable"**
+- Make sure the API is running in a separate terminal.
+- Check `mobile/.env` exists (not `.env.txt`) and has the right `EXPO_PUBLIC_API_URL`.
+- Restart Expo with `npx expo start -c`.
+- In the browser, press F12 and check the Network tab. A request to `undefined/health` means the env variable wasn't loaded.
+
+**Phone gets "refused to connect" or times out**
+- The URL must include the port, like `http://192.168.0.156:3000`.
+- The API must listen on `host: "0.0.0.0"` in `api/src/index.ts`.
+- Allow Node.js through Windows Defender Firewall on **private networks**.
+
+**`EADDRINUSE` when starting the API**
+An old API process is still using port 3000. Close other terminals running the API, or run `npx kill-port 3000`.
+
+**`.env` file seems missing**
+Files starting with a dot are hidden in File Explorer and Finder. Open the folder in VS Code instead. On Windows, avoid creating it in Notepad, which may save it as `.env.txt`.
+
+## Git Workflow
+
+- `main` is always deployable and protected. Do not push to it directly.
+- Create a branch for each piece of work: `feature/<short-name>`.
+- Open a pull request into `main`, get at least one review, and make sure CI passes before merging.
+- **Never commit `.env` files.** Run `git status` before committing and confirm no `.env` file appears in the list.
+
+## Deployment
+
+The API and ingestion job are deployed on Railway and redeploy automatically when changes merge into `main`.
+
+| Service | Root directory | Start command | Schedule |
+|---|---|---|---|
+| API | `/api` | `npm start` | Always on |
+| Ingest | `/api` | `npm run ingest` | Cron (UTC) |
+
+Both services need `DATABASE_URL` set to the Session pooler string in their Railway variables.
+
+Deployed health check: `https://<railway-domain>/health`
+
+## Data Sources and Attribution
+
+Product data comes from [Open Food Facts](https://world.openfoodfacts.org/), available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). Data is crowdsourced and may be incomplete or inaccurate.
 
 # Members
 
