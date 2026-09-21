@@ -240,7 +240,7 @@ kylepait - Kyle Pait - kylepait@gmail.com
 langloisblaine - Blaine Langlois - blang005@odu.edu
 planglan - Peter Langlands - planglands3@gmail.com
 shosni2 - Sarah Hosni - shosni@odu.edu
-Sam - Sam Garden - sgard009@odu.edu hi
+Sam - Sam Garden - sgard009@odu.edu
 Stone Casey - Stone Casey - scase008@odu.edu
 iMakeItFun - Jordan Dossou - jdoss007@odu.edu
 JoshuaHarris1989 - Joshua Harris - Jharr075@ODU.edu OR joshuaharris1989@gmail.com
