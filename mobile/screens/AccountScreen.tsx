@@ -1,76 +1,257 @@
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SEARCH_PRODUCTS } from "../data/mockHome";
-import { colors, layout } from "../theme";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { ScreenHeader } from "../components/Chrome";
+import { colors, layout } from "../theme";
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
+
+type Profile = {
+  id: string;
+  display_name: string;
+};
+
+type SpottedProduct = {
+  id: string;
+  name: string;
+  price: number;
+  location: string;
+  quantity: number | null;
+};
+
+function formatMoney(value: number) {
+  return `$${value.toFixed(2)}`;
+}
+
+async function readError(res: Response) {
+  try {
+    const data = (await res.json()) as { error?: unknown };
+    if (typeof data.error === "string") return data.error;
+  } catch {
+    // Response had no JSON body.
+  }
+  return "Request failed.";
+}
 
 export function AccountScreen() {
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [loadError, setLoadError] = useState("");
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [products, setProducts] = useState<SpottedProduct[]>([]);
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [location, setLocation] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async (quiet = false) => {
+    if (!API_URL) {
+      setStatus("error");
+      setLoadError("API URL not set");
+      return;
+    }
+
+    if (!quiet) setStatus("loading");
+    setLoadError("");
+
+    try {
+      const [profileRes, productsRes] = await Promise.all([
+        fetch(`${API_URL}/profile`),
+        fetch(`${API_URL}/products`),
+      ]);
+
+      if (!profileRes.ok) {
+        setStatus("error");
+        setLoadError(await readError(profileRes));
+        return;
+      }
+      if (!productsRes.ok) {
+        setStatus("error");
+        setLoadError(await readError(productsRes));
+        return;
+      }
+
+      setProfile((await profileRes.json()) as Profile);
+      setProducts((await productsRes.json()) as SpottedProduct[]);
+      setStatus("ready");
+    } catch {
+      setStatus("error");
+      setLoadError("API unreachable");
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const canSubmit =
+    status === "ready" &&
+    !saving &&
+    name.trim().length > 0 &&
+    price.trim().length > 0 &&
+    location.trim().length > 0;
+
+  async function onSubmit() {
+    if (!canSubmit || !API_URL) return;
+
+    setSaving(true);
+    setFormError("");
+
+    const body: { name: string; price: number; location: string; quantity?: number } = {
+      name: name.trim(),
+      price: Number(price),
+      location: location.trim(),
+    };
+    if (quantity.trim()) {
+      body.quantity = Number(quantity);
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        setFormError(await readError(res));
+        return;
+      }
+
+      setName("");
+      setPrice("");
+      setLocation("");
+      setQuantity("");
+      await load(true);
+    } catch {
+      setFormError("API unreachable");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Account" showActions={false} />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.profile}>
-          <View style={styles.avatar} />
-          <View style={styles.profileText}>
-            <Text style={styles.name}>Your Name</Text>
-            <Text style={styles.meta}>Registered Shopper</Text>
-            <View style={styles.points}>
-              <Text style={styles.pointsText}>Points 1,412</Text>
-            </View>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        {status === "loading" && (
+          <View style={styles.statusRow}>
+            <ActivityIndicator color={colors.greenDark} />
+            <Text style={styles.muted}>Loading profile...</Text>
           </View>
-        </View>
+        )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tier Progress</Text>
-          <View style={styles.progressTrack}>
-            <View style={styles.progressFill} />
+        {status === "error" && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{loadError}</Text>
+            <Pressable style={styles.secondaryBtn} onPress={() => void load()}>
+              <Text style={styles.secondaryBtnText}>Try again</Text>
+            </Pressable>
           </View>
-          <View style={styles.progressLabels}>
-            <Text style={styles.muted}>840 pts to Platinum</Text>
-            <Text style={styles.muted}>64%</Text>
-          </View>
-        </View>
+        )}
 
-        <Pressable
-          style={styles.primaryBtn}
-          onPress={() => Alert.alert("Rewards", "Coming soon — rewards are a deluxe feature.")}
-        >
-          <Text style={styles.primaryBtnText}>Redeem Rewards</Text>
-        </Pressable>
-        <Pressable
-          style={styles.secondaryBtn}
-          onPress={() => Alert.alert("Coupons", "Coming soon — coupons are a deluxe feature.")}
-        >
-          <Text style={styles.secondaryBtnText}>View Coupons</Text>
-        </Pressable>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Activity</Text>
-            <Text style={styles.link}>See History</Text>
-          </View>
-          <View style={styles.card}>
-            <Text style={styles.cardLabel}>Recent Comparison</Text>
-            <Text style={styles.saved}>Saved $4.60</Text>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Current Cart</Text>
-            <Text style={styles.link}>See Cart</Text>
-          </View>
-          {SEARCH_PRODUCTS.slice(0, 2).map((item) => (
-            <View key={item.id} style={styles.cartRow}>
-              <View style={styles.thumb} />
-              <View>
-                <Text style={styles.cartName}>{item.name}</Text>
-                <Text style={styles.muted}>{item.description}</Text>
+        {status === "ready" && profile && (
+          <>
+            <View style={styles.profile}>
+              <View style={styles.avatar} />
+              <View style={styles.profileText}>
+                <Text style={styles.name}>{profile.display_name}</Text>
+                <Text style={styles.muted}>Placeholder shopper</Text>
               </View>
             </View>
-          ))}
-        </View>
 
-        <Text style={styles.footer}>Account, rewards, and cart are deluxe / coming soon.</Text>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Add a product</Text>
+              <Text style={styles.muted}>
+                Record something you found in a store. Quantity is optional.
+              </Text>
+
+              <Text style={styles.label}>Name</Text>
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="Whole milk"
+                placeholderTextColor={colors.muted}
+                style={styles.input}
+                accessibilityLabel="Product name"
+              />
+
+              <Text style={styles.label}>Current price</Text>
+              <TextInput
+                value={price}
+                onChangeText={setPrice}
+                placeholder="3.49"
+                placeholderTextColor={colors.muted}
+                keyboardType="decimal-pad"
+                style={styles.input}
+                accessibilityLabel="Current price"
+              />
+
+              <Text style={styles.label}>Location</Text>
+              <TextInput
+                value={location}
+                onChangeText={setLocation}
+                placeholder="Kroger on Hampton Blvd"
+                placeholderTextColor={colors.muted}
+                style={styles.input}
+                accessibilityLabel="Location"
+              />
+
+              <Text style={styles.label}>Quantity</Text>
+              <TextInput
+                value={quantity}
+                onChangeText={setQuantity}
+                placeholder="Optional"
+                placeholderTextColor={colors.muted}
+                keyboardType="number-pad"
+                style={styles.input}
+                accessibilityLabel="Quantity"
+              />
+
+              {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={!canSubmit}
+                style={[styles.primaryBtn, !canSubmit && styles.primaryBtnDisabled]}
+                onPress={() => void onSubmit()}
+              >
+                <Text style={styles.primaryBtnText}>{saving ? "Saving..." : "Save product"}</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Your products</Text>
+              {products.length === 0 ? (
+                <Text style={styles.muted}>No products yet.</Text>
+              ) : (
+                products.map((product) => (
+                  <View key={product.id} style={styles.card}>
+                    <View style={styles.cardTop}>
+                      <Text style={styles.cardName}>{product.name}</Text>
+                      <Text style={styles.cardPrice}>{formatMoney(product.price)}</Text>
+                    </View>
+                    <Text style={styles.muted}>{product.location}</Text>
+                    {product.quantity !== null && (
+                      <Text style={styles.muted}>Qty {product.quantity}</Text>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -79,6 +260,7 @@ export function AccountScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
   content: { padding: 16, gap: 14, paddingBottom: 28 },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   profile: { flexDirection: "row", gap: 14, alignItems: "center" },
   avatar: {
     width: 72,
@@ -88,50 +270,41 @@ const styles = StyleSheet.create({
   },
   profileText: { flex: 1, gap: 4 },
   name: { fontSize: 20, fontWeight: "800", color: colors.text },
-  meta: { color: colors.muted },
-  points: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.green,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  pointsText: { color: colors.white, fontWeight: "700", fontSize: 12 },
-  section: { gap: 8 },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  progressTrack: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: colors.card,
-    overflow: "hidden",
-  },
-  progressFill: {
-    width: "64%",
-    height: "100%",
-    backgroundColor: colors.green,
-  },
-  progressLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
   muted: { color: colors.muted, fontSize: 13 },
+  section: { gap: 8 },
+  sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  label: { fontSize: 13, fontWeight: "700", color: colors.text, marginTop: 4 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.white,
+  },
+  errorBox: {
+    backgroundColor: colors.dangerSoft,
+    borderRadius: layout.radius,
+    padding: 14,
+    gap: 10,
+  },
+  errorText: { color: colors.danger, fontSize: 14 },
   primaryBtn: {
     backgroundColor: colors.green,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
+    marginTop: 6,
   },
+  primaryBtnDisabled: { opacity: 0.45 },
   primaryBtnText: { color: colors.white, fontWeight: "700" },
   secondaryBtn: {
     borderWidth: 1,
     borderColor: colors.black,
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: "center",
   },
   secondaryBtnText: { color: colors.text, fontWeight: "700" },
@@ -139,17 +312,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: layout.radius,
     padding: 14,
+    gap: 4,
   },
-  cardLabel: { color: colors.muted, marginBottom: 4 },
-  saved: { fontSize: 22, fontWeight: "800", color: colors.text },
-  link: { color: colors.greenDark, fontWeight: "600", fontSize: 13 },
-  cartRow: { flexDirection: "row", gap: 10, alignItems: "center" },
-  thumb: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: colors.placeholder,
+  cardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 12,
   },
-  cartName: { fontWeight: "700", color: colors.text },
-  footer: { textAlign: "center", color: colors.muted, fontSize: 12, marginTop: 8 },
+  cardName: { flex: 1, fontWeight: "700", color: colors.text, fontSize: 16 },
+  cardPrice: { fontWeight: "800", color: colors.greenDark, fontSize: 16 },
 });
