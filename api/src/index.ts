@@ -3,16 +3,161 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { pool } from "./db";
 
+const PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000001";
+const MAX_PRICE = 99_999_999.99;
+
 const app = Fastify({ logger: true });
 app.register(cors);
+
+type ProductInput = {
+  name: string;
+  price: number;
+  location: string;
+  quantity: number | null;
+};
+
+type ProductRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  price: string;
+  location: string;
+  quantity: number | null;
+  created_at: Date;
+};
+
+function parseProductBody(body: unknown): string | ProductInput {
+  if (!body || typeof body !== "object") {
+    return "Request body is required.";
+  }
+
+  const raw = body as Record<string, unknown>;
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const location = typeof raw.location === "string" ? raw.location.trim() : "";
+
+  if (!name) return "Name is required.";
+  if (!location) return "Location is required.";
+
+  if (raw.price === undefined || raw.price === null || raw.price === "") {
+    return "Price is required.";
+  }
+
+  const price =
+    typeof raw.price === "number"
+      ? raw.price
+      : typeof raw.price === "string"
+        ? Number(raw.price)
+        : Number.NaN;
+
+  if (!Number.isFinite(price) || price < 0 || price > MAX_PRICE) {
+    return "Price must be a number zero or greater.";
+  }
+
+  let quantity: number | null = null;
+  if (raw.quantity !== undefined && raw.quantity !== null && raw.quantity !== "") {
+    const parsed =
+      typeof raw.quantity === "number"
+        ? raw.quantity
+        : typeof raw.quantity === "string"
+          ? Number(raw.quantity)
+          : Number.NaN;
+
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return "Quantity must be a whole number zero or greater.";
+    }
+    quantity = parsed;
+  }
+
+  return {
+    name,
+    price: Math.round(price * 100) / 100,
+    location,
+    quantity,
+  };
+}
+
+function toProduct(row: ProductRow) {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    name: row.name,
+    price: Number(row.price),
+    location: row.location,
+    quantity: row.quantity,
+    created_at: row.created_at,
+  };
+}
 
 app.get("/health", async (_req, reply) => {
   try {
     await pool.query("SELECT 1");
     return { status: "ok", db: "connected" };
-       } catch (err) {
+  } catch (err) {
     app.log.error(err);
     return reply.code(500).send({ status: "error", db: "unreachable" });
+  }
+});
+
+app.get("/profile", async (_req, reply) => {
+  try {
+    const result = await pool.query<{ id: string; display_name: string }>(
+      "select id, display_name from profiles where id = $1",
+      [PLACEHOLDER_USER_ID]
+    );
+    const profile = result.rows[0];
+    if (!profile) {
+      return reply.code(404).send({ error: "Profile not found." });
+    }
+    return profile;
+  } catch (err) {
+    app.log.error(err);
+    return reply.code(500).send({ error: "Could not load profile." });
+  }
+});
+
+app.get("/products", async (_req, reply) => {
+  try {
+    const result = await pool.query<ProductRow>(
+      `select id, user_id, name, price, location, quantity, created_at
+       from spotted_products
+       where user_id = $1
+       order by created_at desc`,
+      [PLACEHOLDER_USER_ID]
+    );
+    return result.rows.map(toProduct);
+  } catch (err) {
+    app.log.error(err);
+    return reply.code(500).send({ error: "Could not load products." });
+  }
+});
+
+app.post("/products", async (req, reply) => {
+  const parsed = parseProductBody(req.body);
+  if (typeof parsed === "string") {
+    return reply.code(400).send({ error: parsed });
+  }
+
+  try {
+    const result = await pool.query<ProductRow>(
+      `insert into spotted_products (user_id, name, price, location, quantity)
+       values ($1, $2, $3, $4, $5)
+       returning id, user_id, name, price, location, quantity, created_at`,
+      [
+        PLACEHOLDER_USER_ID,
+        parsed.name,
+        parsed.price,
+        parsed.location,
+        parsed.quantity,
+      ]
+    );
+    const saved = result.rows[0];
+    if (!saved) {
+      return reply.code(500).send({ error: "Could not save product." });
+    }
+    return reply.code(201).send(toProduct(saved));
+  } catch (err) {
+    app.log.error(err);
+    return reply.code(500).send({ error: "Could not save product." });
   }
 });
 
