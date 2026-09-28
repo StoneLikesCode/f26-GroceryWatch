@@ -20,6 +20,8 @@ export type KrogerStore = {
   locationId: string;
   name: string;
   address: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type KrogerPrice = {
@@ -138,6 +140,10 @@ async function krogerGet(path: string) {
   return response;
 }
 
+function coordinate(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function storeAddress(address: {
   addressLine1?: unknown;
   city?: unknown;
@@ -165,6 +171,10 @@ export async function searchStores(zip: string): Promise<KrogerStore[]> {
         state?: unknown;
         zipCode?: unknown;
       };
+      geolocation?: {
+        latitude?: unknown;
+        longitude?: unknown;
+      };
     }>;
   };
 
@@ -175,6 +185,8 @@ export async function searchStores(zip: string): Promise<KrogerStore[]> {
       locationId: store.locationId,
       name: store.name,
       address: storeAddress(store.address ?? {}),
+      latitude: coordinate(store.geolocation?.latitude),
+      longitude: coordinate(store.geolocation?.longitude),
     });
   }
   return stores;
