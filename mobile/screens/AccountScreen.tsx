@@ -35,7 +35,6 @@ async function readError(res: Response) {
     const data = (await res.json()) as { error?: unknown };
     if (typeof data.error === "string") return data.error;
   } catch {
-    // Response had no JSON body.
   }
   return "Request failed.";
 }
@@ -51,6 +50,7 @@ export function AccountScreen() {
   const [quantity, setQuantity] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const load = useCallback(async (quiet = false) => {
     if (!API_URL) {
@@ -99,6 +99,24 @@ export function AccountScreen() {
     price.trim().length > 0 &&
     location.trim().length > 0;
 
+  async function onRemove(id: string) {
+    if (!API_URL || removingId) return;
+    setRemovingId(id);
+    setFormError("");
+    try {
+      const res = await fetch(`${API_URL}/products/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        setFormError(await readError(res));
+        return;
+      }
+      setProducts((current) => current.filter((product) => product.id !== id));
+    } catch {
+      setFormError("API unreachable");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
   async function onSubmit() {
     if (!canSubmit || !API_URL) return;
 
@@ -140,7 +158,7 @@ export function AccountScreen() {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="Account" showActions={false} />
+      <ScreenHeader title="List" showActions={false} />
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -232,9 +250,9 @@ export function AccountScreen() {
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Your products</Text>
+              <Text style={styles.sectionTitle}>Your list</Text>
               {products.length === 0 ? (
-                <Text style={styles.muted}>No products yet.</Text>
+                <Text style={styles.muted}>Nothing on your list yet.</Text>
               ) : (
                 products.map((product) => (
                   <View key={product.id} style={styles.card}>
@@ -246,6 +264,17 @@ export function AccountScreen() {
                     {product.quantity !== null && (
                       <Text style={styles.muted}>Qty {product.quantity}</Text>
                     )}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${product.name}`}
+                      disabled={removingId === product.id}
+                      style={[styles.removeBtn, removingId === product.id && styles.primaryBtnDisabled]}
+                      onPress={() => void onRemove(product.id)}
+                    >
+                      <Text style={styles.removeBtnText}>
+                        {removingId === product.id ? "Removing..." : "Remove"}
+                      </Text>
+                    </Pressable>
                   </View>
                 ))
               )}
@@ -322,4 +351,14 @@ const styles = StyleSheet.create({
   },
   cardName: { flex: 1, fontWeight: "700", color: colors.text, fontSize: 16 },
   cardPrice: { fontWeight: "800", color: colors.greenDark, fontSize: 16 },
+  removeBtn: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  removeBtnText: { color: colors.danger, fontWeight: "700", fontSize: 13 },
 });

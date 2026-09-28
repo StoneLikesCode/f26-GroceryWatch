@@ -2,12 +2,19 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { pool } from "./db";
+import {
+  KrogerNotConfiguredError,
+  KrogerRequestError,
+  pricesForBarcodes,
+  searchProducts,
+  searchStores,
+} from "./kroger";
 
 const PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000001";
 const MAX_PRICE = 99_999_999.99;
 
 const app = Fastify({ logger: true });
-app.register(cors);
+app.register(cors, { methods: ["GET", "HEAD", "POST", "DELETE"] });
 
 type ProductInput = {
   name: string;
@@ -156,6 +163,67 @@ app.get("/catalog/search", async (req, reply) => {
   }
 });
 
+function krogerError(err: unknown, reply: { code: (status: number) => { send: (body: unknown) => unknown } }) {
+  if (err instanceof KrogerNotConfiguredError) {
+    return reply.code(503).send({ error: err.message });
+  }
+  if (err instanceof KrogerRequestError) {
+    return reply.code(502).send({ error: err.message });
+  }
+  return reply.code(502).send({ error: "Kroger request failed." });
+}
+
+app.get("/stores", async (req, reply) => {
+  const query = req.query as { zip?: unknown };
+  const zip = typeof query.zip === "string" ? query.zip.trim() : "";
+  if (!/^\d{5}$/.test(zip)) {
+    return reply.code(400).send({ error: "A 5-digit zip code is required." });
+  }
+  try {
+    return await searchStores(zip);
+  } catch (err) {
+    app.log.error(err instanceof KrogerRequestError ? err.message : err);
+    return krogerError(err, reply);
+  }
+});
+
+app.get("/catalog/store-search", async (req, reply) => {
+  const query = req.query as { q?: unknown; locationId?: unknown };
+  const q = typeof query.q === "string" ? query.q.trim() : "";
+  const locationId = typeof query.locationId === "string" ? query.locationId.trim() : "";
+  if (!q || !locationId) {
+    return reply.code(400).send({ error: "A search and a store are required." });
+  }
+  try {
+    return await searchProducts(q.slice(0, 80), locationId);
+  } catch (err) {
+    app.log.error(err instanceof KrogerRequestError ? err.message : err);
+    return krogerError(err, reply);
+  }
+});
+
+app.get("/catalog/prices", async (req, reply) => {
+  const query = req.query as { locationId?: unknown; barcodes?: unknown };
+  const locationId = typeof query.locationId === "string" ? query.locationId.trim() : "";
+  const barcodes =
+    typeof query.barcodes === "string"
+      ? query.barcodes
+          .split(",")
+          .map((barcode) => barcode.trim())
+          .filter((barcode) => barcode.length > 0)
+          .slice(0, 20)
+      : [];
+  if (!locationId || barcodes.length === 0) {
+    return reply.code(400).send({ error: "A store and at least one barcode are required." });
+  }
+  try {
+    return await pricesForBarcodes(locationId, barcodes);
+  } catch (err) {
+    app.log.error(err instanceof KrogerRequestError ? err.message : err);
+    return krogerError(err, reply);
+  }
+});
+
 app.get("/health", async (_req, reply) => {
   try {
     await pool.query("SELECT 1");
@@ -229,6 +297,26 @@ app.post("/products", async (req, reply) => {
   }
 });
 
+app.delete("/products/:id", async (req, reply) => {
+  const id = (req.params as { id?: unknown }).id;
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) {
+    return reply.code(400).send({ error: "A product id is required." });
+  }
+
+  try {
+    const result = await pool.query(
+      "delete from spotted_products where id = $1 and user_id = $2 returning id",
+      [id, PLACEHOLDER_USER_ID]
+    );
+    if (result.rowCount === 0) {
+      return reply.code(404).send({ error: "Product not found." });
+    }
+    return reply.code(204).send();
+  } catch (err) {
+    app.log.error(err);
+    return reply.code(500).send({ error: "Could not remove product." });
+  }
+});
+
 const port = Number(process.env.PORT) || 3000;
-//Listening on 0.0.0.0 matters twice: Railway needs it, and so does your phone when it hits your laptop over Wi-Fi. -SC
 app.listen({ port, host: "0.0.0.0" });
