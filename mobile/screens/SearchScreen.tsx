@@ -42,7 +42,6 @@ async function readError(res: Response) {
     const data = (await res.json()) as { error?: unknown };
     if (typeof data.error === "string") return data.error;
   } catch {
-    // Response had no JSON body.
   }
   return "Search failed.";
 }
@@ -61,6 +60,7 @@ export function SearchScreen({ onOpenSettings }: Props) {
   const [priceStatus, setPriceStatus] = useState<"idle" | "loading" | "error">("idle");
   const [priceError, setPriceError] = useState("");
   const [storesChecked, setStoresChecked] = useState(false);
+  const [storeMatches, setStoreMatches] = useState<CatalogProduct[]>([]);
 
   const canSearch = query.trim().length > 0 && status !== "loading";
 
@@ -84,12 +84,13 @@ export function SearchScreen({ onOpenSettings }: Props) {
     setPriceStatus("idle");
     setPriceError("");
     setStoresChecked(false);
+    setStoreMatches([]);
 
     try {
       const res = await fetch(`${API_URL}/catalog/search?q=${encodeURIComponent(q)}`);
       if (!res.ok) {
-        setStatus("error");
-        setError(await readError(res));
+        setResults([]);
+        setStatus("ready");
         return;
       }
       setResults((await res.json()) as CatalogProduct[]);
@@ -98,6 +99,40 @@ export function SearchScreen({ onOpenSettings }: Props) {
       setStatus("error");
       setError("API unreachable");
     }
+  }
+
+  async function searchKrogerStore(locationId: string) {
+    if (!API_URL) return;
+    const params = new URLSearchParams({ q: query.trim(), locationId });
+    const res = await fetch(`${API_URL}/catalog/store-search?${params.toString()}`);
+    if (!res.ok) {
+      setPriceStatus("error");
+      setPriceError(await readError(res));
+      return;
+    }
+    const rows = (await res.json()) as Array<
+      CatalogProduct & { price: number | null; promoPrice: number | null }
+    >;
+    const nextPrices: Record<string, KrogerPrice> = {};
+    const products: CatalogProduct[] = [];
+    for (const row of rows) {
+      products.push({
+        barcode: row.barcode,
+        name: row.name,
+        brand: row.brand,
+        packageSize: row.packageSize,
+      });
+      if (row.barcode) {
+        nextPrices[row.barcode] = {
+          barcode: row.barcode,
+          price: row.price,
+          promoPrice: row.promoPrice,
+        };
+      }
+    }
+    setStoreMatches(products);
+    setPrices(nextPrices);
+    setPriceStatus("idle");
   }
 
   async function onFindStores() {
@@ -109,6 +144,7 @@ export function SearchScreen({ onOpenSettings }: Props) {
     setPrices({});
     setPriceStatus("idle");
     setPriceError("");
+    setStoreMatches([]);
     try {
       const res = await fetch(`${API_URL}/stores?zip=${encodeURIComponent(zip.trim())}`);
       if (!res.ok) {
@@ -134,13 +170,14 @@ export function SearchScreen({ onOpenSettings }: Props) {
       .filter((barcode): barcode is string => Boolean(barcode));
     setSelectedStoreId(store.locationId);
     setPrices({});
-    if (barcodes.length === 0) {
-      setPriceStatus("idle");
-      return;
-    }
+    setStoreMatches([]);
     setPriceStatus("loading");
     setPriceError("");
     try {
+      if (barcodes.length === 0) {
+        await searchKrogerStore(store.locationId);
+        return;
+      }
       const params = new URLSearchParams({
         locationId: store.locationId,
         barcodes: barcodes.join(","),
@@ -152,6 +189,11 @@ export function SearchScreen({ onOpenSettings }: Props) {
         return;
       }
       const rows = (await res.json()) as KrogerPrice[];
+      const carried = rows.some((row) => row.price !== null || row.promoPrice !== null);
+      if (!carried) {
+        await searchKrogerStore(store.locationId);
+        return;
+      }
       const next: Record<string, KrogerPrice> = {};
       for (const row of rows) next[row.barcode] = row;
       setPrices(next);
@@ -167,6 +209,23 @@ export function SearchScreen({ onOpenSettings }: Props) {
   }
 
   const canFindStores = /^\d{5}$/.test(zip.trim()) && storeStatus !== "loading";
+  const storePricesReady = selectedStoreId !== null && priceStatus === "idle" && priceError === "";
+
+  function isAtSelectedStore(product: CatalogProduct) {
+    if (!product.barcode) return false;
+    const quote = prices[product.barcode];
+    if (!quote) return false;
+    return quote.price !== null || quote.promoPrice !== null;
+  }
+
+  const visibleResults =
+    storeMatches.length > 0
+      ? storeMatches
+      : selectedStoreId !== null && priceStatus === "loading"
+        ? []
+        : storePricesReady
+          ? results.filter(isAtSelectedStore)
+          : results;
 
   return (
     <View style={styles.root}>
@@ -212,11 +271,7 @@ export function SearchScreen({ onOpenSettings }: Props) {
 
         {status === "error" && <Text style={styles.errorText}>{error}</Text>}
 
-        {status === "ready" && results.length === 0 && (
-          <Text style={styles.hint}>No products found.</Text>
-        )}
-
-        {status === "ready" && results.length > 0 && (
+        {status === "ready" && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Nearby Kroger</Text>
             <View style={styles.searchBar}>
@@ -243,7 +298,7 @@ export function SearchScreen({ onOpenSettings }: Props) {
               </Pressable>
             </View>
             {storeError ? <Text style={styles.errorText}>{storeError}</Text> : null}
-            {!storesChecked && stores.length === 0 && storeError === "" ? (
+            {!storesChecked && stores.length === 0 && storeError === "" && results.length > 0 ? (
               <Text style={styles.hint}>Enter a zip code to choose a Kroger.</Text>
             ) : null}
             {stores.map((store) => {
@@ -273,9 +328,18 @@ export function SearchScreen({ onOpenSettings }: Props) {
           </View>
         )}
 
-        {results.map((product) => {
+        {status === "ready" && results.length === 0 && selectedStoreId === null ? (
+          <Text style={styles.hint}>
+            Open Food Facts has no matches. Choose a store to search Kroger.
+          </Text>
+        ) : null}
+
+        {storePricesReady && visibleResults.length === 0 ? (
+          <Text style={styles.hint}>No products at this store.</Text>
+        ) : null}
+
+        {visibleResults.map((product) => {
           const quote = product.barcode ? prices[product.barcode] : undefined;
-          const showAvailability = selectedStoreId !== null && priceStatus !== "loading";
           return (
             <View key={`${product.barcode ?? "none"}-${product.name}`} style={styles.row}>
               <View style={styles.rowBody}>
@@ -292,9 +356,6 @@ export function SearchScreen({ onOpenSettings }: Props) {
                 ) : null}
                 {quote?.promoPrice !== null && quote?.promoPrice !== undefined ? (
                   <Text style={styles.promo}>Promo {formatMoney(quote.promoPrice)}</Text>
-                ) : null}
-                {showAvailability && (quote === undefined || quote.price === null) ? (
-                  <Text style={styles.meta}>Not at this store</Text>
                 ) : null}
               </View>
             </View>

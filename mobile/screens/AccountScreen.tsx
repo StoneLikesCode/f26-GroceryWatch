@@ -35,7 +35,6 @@ async function readError(res: Response) {
     const data = (await res.json()) as { error?: unknown };
     if (typeof data.error === "string") return data.error;
   } catch {
-    // Response had no JSON body.
   }
   return "Request failed.";
 }

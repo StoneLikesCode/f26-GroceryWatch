@@ -6,6 +6,7 @@ import {
   KrogerNotConfiguredError,
   KrogerRequestError,
   pricesForBarcodes,
+  searchProducts,
   searchStores,
 } from "./kroger";
 
@@ -164,7 +165,10 @@ app.get("/catalog/search", async (req, reply) => {
 
 function krogerError(err: unknown, reply: { code: (status: number) => { send: (body: unknown) => unknown } }) {
   if (err instanceof KrogerNotConfiguredError) {
-    return reply.code(503).send({ error: "Kroger is not configured." });
+    return reply.code(503).send({ error: err.message });
+  }
+  if (err instanceof KrogerRequestError) {
+    return reply.code(502).send({ error: err.message });
   }
   return reply.code(502).send({ error: "Kroger request failed." });
 }
@@ -177,6 +181,21 @@ app.get("/stores", async (req, reply) => {
   }
   try {
     return await searchStores(zip);
+  } catch (err) {
+    app.log.error(err instanceof KrogerRequestError ? err.message : err);
+    return krogerError(err, reply);
+  }
+});
+
+app.get("/catalog/store-search", async (req, reply) => {
+  const query = req.query as { q?: unknown; locationId?: unknown };
+  const q = typeof query.q === "string" ? query.q.trim() : "";
+  const locationId = typeof query.locationId === "string" ? query.locationId.trim() : "";
+  if (!q || !locationId) {
+    return reply.code(400).send({ error: "A search and a store are required." });
+  }
+  try {
+    return await searchProducts(q.slice(0, 80), locationId);
   } catch (err) {
     app.log.error(err instanceof KrogerRequestError ? err.message : err);
     return krogerError(err, reply);
@@ -279,5 +298,4 @@ app.post("/products", async (req, reply) => {
 });
 
 const port = Number(process.env.PORT) || 3000;
-//Listening on 0.0.0.0 matters twice: Railway needs it, and so does your phone when it hits your laptop over Wi-Fi. -SC
 app.listen({ port, host: "0.0.0.0" });

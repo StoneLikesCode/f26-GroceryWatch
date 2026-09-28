@@ -1,5 +1,7 @@
-const TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token";
-const API_BASE = "https://api.kroger.com/v1";
+import { execFileSync } from "child_process";
+
+const TOKEN_URL = "https://api-ce.kroger.com/v1/connect/oauth2/token";
+const API_BASE = "https://api-ce.kroger.com/v1";
 const LOOKUP_BATCH = 4;
 
 export class KrogerNotConfiguredError extends Error {
@@ -9,8 +11,8 @@ export class KrogerNotConfiguredError extends Error {
 }
 
 export class KrogerRequestError extends Error {
-  constructor() {
-    super("Kroger request failed.");
+  constructor(message = "Kroger request failed.") {
+    super(message);
   }
 }
 
@@ -26,6 +28,15 @@ export type KrogerPrice = {
   promoPrice: number | null;
 };
 
+export type KrogerCatalogItem = {
+  barcode: string | null;
+  name: string;
+  brand: string | null;
+  packageSize: string | null;
+  price: number | null;
+  promoPrice: number | null;
+};
+
 type TokenCache = {
   token: string;
   expiresAt: number;
@@ -33,13 +44,37 @@ type TokenCache = {
 
 let cachedToken: TokenCache | null = null;
 
+function windowsUserEnv(name: string) {
+  if (process.platform !== "win32") return "";
+  try {
+    const output = execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `[Environment]::GetEnvironmentVariable(${JSON.stringify(name)}, 'User')`,
+      ],
+      { windowsHide: true, timeout: 10000 }
+    );
+    const text =
+      output.length >= 2 && output[0] === 0xff && output[1] === 0xfe
+        ? output.subarray(2).toString("utf16le")
+        : output.toString("utf8");
+    return text.replace(/^\uFEFF/, "").trim();
+  } catch {
+    return "";
+  }
+}
+
 function envValue(name: string) {
-  const value = process.env[name]?.trim() ?? "";
-  return value.length > 0 ? value : "";
+  const fromUser = windowsUserEnv(name);
+  if (fromUser.length > 0) return fromUser;
+  return process.env[name]?.trim() ?? "";
 }
 
 function credentials() {
-  const id = envValue("KROGER__CLIENT_ID");
+  const id = envValue("KROGER_CLIENT_ID");
   const secret = envValue("KROGER_CLIENT_SECRET");
   if (!id || !secret) return null;
   return { id, secret };
@@ -72,6 +107,9 @@ async function accessToken() {
     },
     body,
   });
+  if (response.status === 401) {
+    throw new KrogerRequestError("Kroger rejected the client credentials.");
+  }
   if (!response.ok) throw new KrogerRequestError();
 
   const data = (await response.json()) as {
@@ -144,6 +182,55 @@ export async function searchStores(zip: string): Promise<KrogerStore[]> {
 
 function moneyOrNull(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function shelfPrice(value: unknown) {
+  const amount = moneyOrNull(value);
+  return amount !== null && amount > 0 ? amount : null;
+}
+
+function textOrNull(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export async function searchProducts(term: string, locationId: string) {
+  const params = new URLSearchParams({
+    "filter.term": term,
+    "filter.locationId": locationId,
+    "filter.limit": "20",
+  });
+  const response = await krogerGet(`/products?${params.toString()}`);
+  if (!response.ok) throw new KrogerRequestError();
+
+  const data = (await response.json()) as {
+    data?: Array<{
+      upc?: unknown;
+      brand?: unknown;
+      description?: unknown;
+      items?: Array<{ size?: unknown; price?: { regular?: unknown; promo?: unknown } }>;
+    }>;
+  };
+
+  const products: KrogerCatalogItem[] = [];
+  for (const product of data.data ?? []) {
+    const name = textOrNull(product.description);
+    if (!name) continue;
+    const item = product.items?.[0];
+    const price = shelfPrice(item?.price?.regular);
+    const promoPrice = shelfPrice(item?.price?.promo);
+    if (price === null && promoPrice === null) continue;
+    products.push({
+      barcode: textOrNull(product.upc),
+      name,
+      brand: textOrNull(product.brand),
+      packageSize: textOrNull(item?.size),
+      price,
+      promoPrice,
+    });
+  }
+  return products;
 }
 
 async function priceForBarcode(locationId: string, barcode: string): Promise<KrogerPrice> {
