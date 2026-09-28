@@ -2,6 +2,12 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { pool } from "./db";
+import {
+  KrogerNotConfiguredError,
+  KrogerRequestError,
+  pricesForBarcodes,
+  searchStores,
+} from "./kroger";
 
 const PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000001";
 const MAX_PRICE = 99_999_999.99;
@@ -153,6 +159,49 @@ app.get("/catalog/search", async (req, reply) => {
   } catch (err) {
     app.log.error(err);
     return reply.code(502).send({ error: "Product search failed." });
+  }
+});
+
+function krogerError(err: unknown, reply: { code: (status: number) => { send: (body: unknown) => unknown } }) {
+  if (err instanceof KrogerNotConfiguredError) {
+    return reply.code(503).send({ error: "Kroger is not configured." });
+  }
+  return reply.code(502).send({ error: "Kroger request failed." });
+}
+
+app.get("/stores", async (req, reply) => {
+  const query = req.query as { zip?: unknown };
+  const zip = typeof query.zip === "string" ? query.zip.trim() : "";
+  if (!/^\d{5}$/.test(zip)) {
+    return reply.code(400).send({ error: "A 5-digit zip code is required." });
+  }
+  try {
+    return await searchStores(zip);
+  } catch (err) {
+    app.log.error(err instanceof KrogerRequestError ? err.message : err);
+    return krogerError(err, reply);
+  }
+});
+
+app.get("/catalog/prices", async (req, reply) => {
+  const query = req.query as { locationId?: unknown; barcodes?: unknown };
+  const locationId = typeof query.locationId === "string" ? query.locationId.trim() : "";
+  const barcodes =
+    typeof query.barcodes === "string"
+      ? query.barcodes
+          .split(",")
+          .map((barcode) => barcode.trim())
+          .filter((barcode) => barcode.length > 0)
+          .slice(0, 20)
+      : [];
+  if (!locationId || barcodes.length === 0) {
+    return reply.code(400).send({ error: "A store and at least one barcode are required." });
+  }
+  try {
+    return await pricesForBarcodes(locationId, barcodes);
+  } catch (err) {
+    app.log.error(err instanceof KrogerRequestError ? err.message : err);
+    return krogerError(err, reply);
   }
 });
 
