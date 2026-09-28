@@ -88,6 +88,74 @@ function toProduct(row: ProductRow) {
   };
 }
 
+const OFF_SEARCH_URL = "https://world.openfoodfacts.org/cgi/search.pl";
+
+type CatalogProduct = {
+  barcode: string | null;
+  name: string;
+  brand: string | null;
+  packageSize: string | null;
+};
+
+function textOrNull(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+app.get("/catalog/search", async (req, reply) => {
+  const query = req.query as { q?: unknown };
+  const q = typeof query.q === "string" ? query.q.trim() : "";
+  if (!q) {
+    return reply.code(400).send({ error: "Search text is required." });
+  }
+
+  const url = new URL(OFF_SEARCH_URL);
+  url.searchParams.set("search_terms", q);
+  url.searchParams.set("search_simple", "1");
+  url.searchParams.set("action", "process");
+  url.searchParams.set("json", "1");
+  url.searchParams.set("page_size", "20");
+  url.searchParams.set("fields", "code,product_name,brands,quantity");
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "GroceryWatch/1.0",
+      },
+    });
+    if (!response.ok) {
+      return reply.code(502).send({ error: "Product search failed." });
+    }
+
+    const data = (await response.json()) as {
+      products?: Array<{
+        code?: unknown;
+        product_name?: unknown;
+        brands?: unknown;
+        quantity?: unknown;
+      }>;
+    };
+
+    const products: CatalogProduct[] = [];
+    for (const product of data.products ?? []) {
+      const name = textOrNull(product.product_name);
+      if (!name) continue;
+      products.push({
+        barcode: textOrNull(product.code),
+        name,
+        brand: textOrNull(product.brands),
+        packageSize: textOrNull(product.quantity),
+      });
+    }
+    return products;
+  } catch (err) {
+    app.log.error(err);
+    return reply.code(502).send({ error: "Product search failed." });
+  }
+});
+
 app.get("/health", async (_req, reply) => {
   try {
     await pool.query("SELECT 1");
