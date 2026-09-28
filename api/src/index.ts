@@ -14,7 +14,7 @@ const PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000001";
 const MAX_PRICE = 99_999_999.99;
 
 const app = Fastify({ logger: true });
-app.register(cors);
+app.register(cors, { methods: ["GET", "HEAD", "POST", "DELETE"] });
 
 type ProductInput = {
   name: string;
@@ -294,6 +294,27 @@ app.post("/products", async (req, reply) => {
   } catch (err) {
     app.log.error(err);
     return reply.code(500).send({ error: "Could not save product." });
+  }
+});
+
+app.delete("/products/:id", async (req, reply) => {
+  const id = (req.params as { id?: unknown }).id;
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) {
+    return reply.code(400).send({ error: "A product id is required." });
+  }
+
+  try {
+    const result = await pool.query(
+      "delete from spotted_products where id = $1 and user_id = $2 returning id",
+      [id, PLACEHOLDER_USER_ID]
+    );
+    if (result.rowCount === 0) {
+      return reply.code(404).send({ error: "Product not found." });
+    }
+    return reply.code(204).send();
+  } catch (err) {
+    app.log.error(err);
+    return reply.code(500).send({ error: "Could not remove product." });
   }
 });
 

@@ -7,7 +7,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "home", label: "Home", icon: "⌂" },
   { id: "map", label: "Map", icon: "🗺" },
   { id: "search", label: "Search", icon: "🔍" },
-  { id: "account", label: "Account", icon: "👤" },
+  { id: "account", label: "List", icon: "☰" },
 ];
 
 type Props = {

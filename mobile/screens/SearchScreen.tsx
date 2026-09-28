@@ -61,6 +61,9 @@ export function SearchScreen({ onOpenSettings }: Props) {
   const [priceError, setPriceError] = useState("");
   const [storesChecked, setStoresChecked] = useState(false);
   const [storeMatches, setStoreMatches] = useState<CatalogProduct[]>([]);
+  const [addedKeys, setAddedKeys] = useState<Record<string, true>>({});
+  const [addingKey, setAddingKey] = useState<string | null>(null);
+  const [addError, setAddError] = useState("");
 
   const canSearch = query.trim().length > 0 && status !== "loading";
 
@@ -85,6 +88,9 @@ export function SearchScreen({ onOpenSettings }: Props) {
     setPriceError("");
     setStoresChecked(false);
     setStoreMatches([]);
+    setAddedKeys({});
+    setAddingKey(null);
+    setAddError("");
 
     try {
       const res = await fetch(`${API_URL}/catalog/search?q=${encodeURIComponent(q)}`);
@@ -206,6 +212,44 @@ export function SearchScreen({ onOpenSettings }: Props) {
 
   function formatMoney(value: number) {
     return `$${value.toFixed(2)}`;
+  }
+
+  function productKey(product: CatalogProduct) {
+    return `${product.barcode ?? "none"}-${product.name}`;
+  }
+
+  function listPrice(quote: KrogerPrice | undefined) {
+    if (!quote) return null;
+    if (quote.price !== null) return quote.price;
+    return quote.promoPrice;
+  }
+
+  async function onAdd(product: CatalogProduct) {
+    const key = productKey(product);
+    const quote = product.barcode ? prices[product.barcode] : undefined;
+    const price = listPrice(quote);
+    const store = stores.find((item) => item.locationId === selectedStoreId);
+    if (!API_URL || price === null || !store || addingKey || addedKeys[key]) return;
+
+    setAddingKey(key);
+    setAddError("");
+    const location = store.address ? `${store.name}, ${store.address}` : store.name;
+    try {
+      const res = await fetch(`${API_URL}/products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: product.name, price, location }),
+      });
+      if (!res.ok) {
+        setAddError(await readError(res));
+        return;
+      }
+      setAddedKeys((current) => ({ ...current, [key]: true }));
+    } catch {
+      setAddError("API unreachable");
+    } finally {
+      setAddingKey(null);
+    }
   }
 
   const canFindStores = /^\d{5}$/.test(zip.trim()) && storeStatus !== "loading";
@@ -338,10 +382,15 @@ export function SearchScreen({ onOpenSettings }: Props) {
           <Text style={styles.hint}>No products at this store.</Text>
         ) : null}
 
+        {addError ? <Text style={styles.errorText}>{addError}</Text> : null}
+
         {visibleResults.map((product) => {
           const quote = product.barcode ? prices[product.barcode] : undefined;
+          const key = productKey(product);
+          const price = listPrice(quote);
+          const canAdd = price !== null && selectedStoreId !== null && !addedKeys[key];
           return (
-            <View key={`${product.barcode ?? "none"}-${product.name}`} style={styles.row}>
+            <View key={key} style={styles.row}>
               <View style={styles.rowBody}>
                 <Text style={styles.name}>{product.name}</Text>
                 {product.brand ? <Text style={styles.meta}>{product.brand}</Text> : null}
@@ -358,6 +407,19 @@ export function SearchScreen({ onOpenSettings }: Props) {
                   <Text style={styles.promo}>Promo {formatMoney(quote.promoPrice)}</Text>
                 ) : null}
               </View>
+              {price !== null && selectedStoreId !== null ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${product.name} to list`}
+                  disabled={!canAdd || addingKey === key}
+                  onPress={() => void onAdd(product)}
+                  style={[styles.addBtn, (!canAdd || addingKey === key) && styles.searchBtnDisabled]}
+                >
+                  <Text style={styles.addBtnText}>
+                    {addedKeys[key] ? "Added" : addingKey === key ? "Adding..." : "Add"}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           );
         })}
@@ -412,10 +474,21 @@ const styles = StyleSheet.create({
   price: { fontSize: 16, fontWeight: "800", color: colors.greenDark },
   promo: { fontSize: 13, fontWeight: "700", color: colors.green },
   row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  addBtn: {
+    borderWidth: 1,
+    borderColor: colors.green,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  addBtnText: { color: colors.greenDark, fontWeight: "700", fontSize: 13 },
   rowBody: { flex: 1, gap: 4 },
   name: { fontSize: 16, fontWeight: "700", color: colors.text },
   meta: { fontSize: 13, color: colors.muted },
