@@ -10,23 +10,22 @@ A mobile app for comparing grocery prices across nearby stores. Built for CS 411
 | Backend API | Node.js with Fastify (TypeScript) |
 | Database | PostgreSQL hosted on Supabase |
 | Scheduled ingestion | Node script run as a Railway cron service |
-| Product data | Open Food Facts, official retailer APIs |
+| Product data | Open Food Facts, Kroger API |
 | Hosting | Railway |
-| CI | GitHub Actions |
 
 ## Repository Structure
 
 ```
-grocerywatch/
+f26-GroceryWatch/
 ├── mobile/              Expo mobile app
 ├── api/                 Fastify API
 │   └── src/
 │       ├── index.ts     API server and routes
 │       ├── db.ts        Database connection pool
+│       ├── kroger.ts    Kroger store and price client
 │       └── jobs/
 │           └── ingest.ts  Scheduled ingestion job
-├── supabase/            Database migrations
-└── .github/workflows/   CI configuration
+└── supabase/            Database migrations
 ```
 
 ## Prerequisites
@@ -42,14 +41,15 @@ You will also need from the team:
 
 - Access to the GitHub repository
 - The Supabase **database password** (shared privately, never in the repo or group chat)
+- The Kroger **client ID** and **client secret** (shared privately, never in the repo or group chat). Map, store search, and in-store prices need these. Catalog search through Open Food Facts works without them.
 
 ## Getting Started
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<org-or-user>/grocerywatch.git
-cd grocerywatch
+git clone https://github.com/iMakeItFun/f26-GroceryWatch.git
+cd f26-GroceryWatch
 ```
 
 ### 2. Set up the API
@@ -69,12 +69,16 @@ cp .env.example .env
 Copy-Item .env.example .env
 ```
 
-Open `api/.env` and set `DATABASE_URL` to the Supabase connection string (see [Getting the Database URL](#getting-the-database-url) below). The file should contain exactly two lines, with no quotes and no spaces around `=`:
+Open `api/.env` and set `DATABASE_URL` to the Supabase connection string (see [Getting the Database URL](#getting-the-database-url) below). Fill in the Kroger credentials from the team. The file should contain these four lines, with no quotes and no spaces around `=`:
 
 ```
 DATABASE_URL=postgresql://postgres.<project-ref>:<database-password>@<pooler-host>:5432/postgres
 PORT=3000
+KROGER_CLIENT_ID=<kroger-client-id>
+KROGER_CLIENT_SECRET=<kroger-client-secret>
 ```
+
+Leave the Kroger values empty only if you are not using Map or in-store search. Those routes then return `Kroger is not configured.`
 
 Start the API:
 
@@ -213,7 +217,7 @@ Files starting with a dot are hidden in File Explorer and Finder. Open the folde
 
 - `main` is always deployable and protected. Do not push to it directly.
 - Create a branch for each piece of work: `feature/<short-name>`.
-- Open a pull request into `main`, get at least one review, and make sure CI passes before merging.
+- Open a pull request into `main` and get at least one review before merging.
 - **Never commit `.env` files.** Run `git status` before committing and confirm no `.env` file appears in the list.
 
 ## Deployment
@@ -225,13 +229,15 @@ The API and ingestion job are deployed on Railway and redeploy automatically whe
 | API | `/api` | `npm start` | Always on |
 | Ingest | `/api` | `npm run ingest` | Cron (UTC) |
 
-Both services need `DATABASE_URL` set to the Session pooler string in their Railway variables.
+Both services need `DATABASE_URL` set to the Session pooler string in their Railway variables. The API service also needs `KROGER_CLIENT_ID` and `KROGER_CLIENT_SECRET` so store search and prices work in the deployed app.
 
 Deployed health check: `https://<railway-domain>/health`
 
 ## Data Sources and Attribution
 
-Product data comes from [Open Food Facts](https://world.openfoodfacts.org/), available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). Data is crowdsourced and may be incomplete or inaccurate.
+Catalog search uses [Open Food Facts](https://world.openfoodfacts.org/), available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). Data is crowdsourced and may be incomplete or inaccurate.
+
+Store locations and in-store prices come from the [Kroger API](https://developer.kroger.com/) certification environment (`api-ce.kroger.com`).
 
 # Members
 
