@@ -4,14 +4,16 @@ A mobile app for comparing grocery prices across nearby stores. Built for CS 411
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Mobile app | React Native with Expo (TypeScript) |
-| Backend API | Node.js with Fastify (TypeScript) |
-| Database | PostgreSQL hosted on Supabase |
+
+| Layer               | Technology                                |
+| ------------------- | ----------------------------------------- |
+| Mobile app          | React Native with Expo (TypeScript)       |
+| Backend API         | Node.js with Fastify (TypeScript)         |
+| Database            | PostgreSQL hosted on Supabase             |
 | Scheduled ingestion | Node script run as a Railway cron service |
-| Product data | Open Food Facts, Kroger API |
-| Hosting | Railway |
+| Product data        | Open Food Facts, Kroger API               |
+| Hosting             | Railway                                   |
+
 
 ## Repository Structure
 
@@ -28,6 +30,8 @@ f26-GroceryWatch/
 └── supabase/            Database migrations
 ```
 
+
+
 ## Prerequisites
 
 Install these before starting:
@@ -43,7 +47,11 @@ You will also need from the team:
 - The Supabase **database password** (shared privately, never in the repo or group chat)
 - The Kroger **client ID** and **client secret** (shared privately, never in the repo or group chat). Map, store search, and in-store prices need these. Catalog search through Open Food Facts works without them.
 
+
+
 ## Getting Started
+
+
 
 ### 1. Clone the repository
 
@@ -51,6 +59,8 @@ You will also need from the team:
 git clone https://github.com/iMakeItFun/f26-GroceryWatch.git
 cd f26-GroceryWatch
 ```
+
+
 
 ### 2. Set up the API
 
@@ -86,11 +96,13 @@ Start the API:
 npm run dev
 ```
 
-Confirm it works by opening http://localhost:3000/health in your browser. You should see:
+Confirm it works by opening [http://localhost:3000/health](http://localhost:3000/health) in your browser. You should see:
 
 ```json
 {"status":"ok","db":"connected"}
 ```
+
+
 
 ### 3. Set up the mobile app
 
@@ -147,6 +159,8 @@ A correct Session pooler string has the project ref attached to the username and
 postgresql://postgres.abcdefghijklmnopqrst:yourpassword@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 ```
 
+
+
 ## Database Migrations
 
 Schema changes live in `supabase/migrations/` so everyone's database matches. Link the CLI to the project once:
@@ -172,45 +186,52 @@ Coordinate with the team before pushing migrations, since everyone shares the sa
 
 Run these from the `api/` folder:
 
-| Command | What it does |
-|---|---|
-| `npm run dev` | Starts the API with auto-restart on code changes |
-| `npm run build` | Compiles TypeScript into `dist/` |
-| `npm start` | Runs the compiled API from `dist/` (used in production) |
+
+| Command          | What it does                                            |
+| ---------------- | ------------------------------------------------------- |
+| `npm run dev`    | Starts the API with auto-restart on code changes        |
+| `npm run build`  | Compiles TypeScript into `dist/`                        |
+| `npm start`      | Runs the compiled API from `dist/` (used in production) |
 | `npm run ingest` | Runs the ingestion job once (run `npm run build` first) |
+
+
+
 
 ## Troubleshooting
 
-**`/health` returns `connect ETIMEDOUT` with an IPv6 address (like `2600:...`)**
+`/health` **returns** `connect ETIMEDOUT` **with an IPv6 address (like** `2600:...`**)**
 You are using the direct connection string. Switch to the **Session pooler** string. The direct connection is IPv6-only on the free plan and most networks, including Railway, can't reach it.
 
-**`password authentication failed for user "postgres"`**
+`password authentication failed for user "postgres"`
+
 - Use the **database password** set when the project was created, not your Supabase account login.
 - Make sure the `[ ]` brackets around the password placeholder were removed.
 - Check that the username includes the project ref (`postgres.abcd...`), not just `postgres`.
 - If unsure of the password, ask the team rather than resetting it, since a reset breaks everyone's `.env` and the Railway deployment.
 
-**`/health` returns an error after editing `.env`**
+`/health` **returns an error after editing** `.env`
 `npm run dev` does not always reload `.env`. Stop it with Ctrl+C and start it again.
 
-**`'expo' is not recognized as an internal or external command`**
+`'expo' is not recognized as an internal or external command`
 Dependencies aren't installed. Run `npm install` inside the `mobile/` folder.
 
 **App shows "API unreachable"**
+
 - Make sure the API is running in a separate terminal.
 - Check `mobile/.env` exists (not `.env.txt`) and has the right `EXPO_PUBLIC_API_URL`.
 - Restart Expo with `npx expo start -c`.
 - In the browser, press F12 and check the Network tab. A request to `undefined/health` means the env variable wasn't loaded.
 
 **Phone gets "refused to connect" or times out**
+
 - The URL must include the port, like `http://192.168.0.156:3000`.
 - The API must listen on `host: "0.0.0.0"` in `api/src/index.ts`.
 - Allow Node.js through Windows Defender Firewall on **private networks**.
 
-**`EADDRINUSE` when starting the API**
+`EADDRINUSE` **when starting the API**
 An old API process is still using port 3000. Close other terminals running the API, or run `npx kill-port 3000`.
 
-**`.env` file seems missing**
+`.env` **file seems missing**
 Files starting with a dot are hidden in File Explorer and Finder. Open the folder in VS Code instead. On Windows, avoid creating it in Notepad, which may save it as `.env.txt`.
 
 ## Git Workflow
@@ -218,16 +239,20 @@ Files starting with a dot are hidden in File Explorer and Finder. Open the folde
 - `main` is always deployable and protected. Do not push to it directly.
 - Create a branch for each piece of work: `feature/<short-name>`.
 - Open a pull request into `main` and get at least one review before merging.
-- **Never commit `.env` files.** Run `git status` before committing and confirm no `.env` file appears in the list.
+- **Never commit** `.env` **files.** Run `git status` before committing and confirm no `.env` file appears in the list.
+
+
 
 ## Deployment
 
 The API and ingestion job are deployed on Railway and redeploy automatically when changes merge into `main`.
 
-| Service | Root directory | Start command | Schedule |
-|---|---|---|---|
-| API | `/api` | `npm start` | Always on |
-| Ingest | `/api` | `npm run ingest` | Cron (UTC) |
+
+| Service | Root directory | Start command    | Schedule   |
+| ------- | -------------- | ---------------- | ---------- |
+| API     | `/api`         | `npm start`      | Always on  |
+| Ingest  | `/api`         | `npm run ingest` | Cron (UTC) |
+
 
 Both services need `DATABASE_URL` set to the Session pooler string in their Railway variables. The API service also needs `KROGER_CLIENT_ID` and `KROGER_CLIENT_SECRET` so store search and prices work in the deployed app.
 
@@ -241,12 +266,14 @@ Store locations and in-store prices come from the [Kroger API](https://developer
 
 # Members
 
-Aaronfx0 - Aaron Breslin - abres005@odu.edu
-kylepait - Kyle Pait - kylepait@gmail.com
-langloisblaine - Blaine Langlois - blang005@odu.edu
-planglan - Peter Langlands - planglands3@gmail.com
-shosni2 - Sarah Hosni - shosni@odu.edu
-Sam - Sam Garden - sgard009@odu.edu
-Stone Casey - Stone Casey - scase008@odu.edu
-iMakeItFun - Jordan Dossou - jdoss007@odu.edu
-JoshuaHarris1989 - Joshua Harris - Jharr075@ODU.edu OR joshuaharris1989@gmail.com
+---
+
+Aaronfx0 - Aaron Breslin - [abres005@odu.edu](mailto:abres005@odu.edu)
+kylepait - Kyle Pait - [kylepait@gmail.com](mailto:kylepait@gmail.com)
+langloisblaine - Blaine Langlois - [blang005@odu.edu](mailto:blang005@odu.edu)
+planglan - Peter Langlands - [planglands3@gmail.com](mailto:planglands3@gmail.com)
+shosni2 - Sarah Hosni - [shosni@odu.edu](mailto:shosni@odu.edu)
+Sam - Sam Garden - [sgard009@odu.edu](mailto:sgard009@odu.edu)
+Stone Casey - Stone Casey - [scase008@odu.edu](mailto:scase008@odu.edu)
+iMakeItFun - Jordan Dossou - [jdoss007@odu.edu](mailto:jdoss007@odu.edu)
+JoshuaHarris1989 - Joshua Harris - [Jharr075@ODU.edu](mailto:Jharr075@ODU.edu) OR [joshuaharris1989@gmail.com](mailto:joshuaharris1989@gmail.com)
