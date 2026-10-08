@@ -1,4 +1,4 @@
-import { execFileSync } from "child_process";
+import { userEnv } from "./user-env";
 
 const TOKEN_URL = "https://api-ce.kroger.com/v1/connect/oauth2/token";
 const API_BASE = "https://api-ce.kroger.com/v1";
@@ -46,38 +46,9 @@ type TokenCache = {
 
 let cachedToken: TokenCache | null = null;
 
-function windowsUserEnv(name: string) {
-  if (process.platform !== "win32") return "";
-  try {
-    const output = execFileSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `[Environment]::GetEnvironmentVariable(${JSON.stringify(name)}, 'User')`,
-      ],
-      { windowsHide: true, timeout: 10000 }
-    );
-    const text =
-      output.length >= 2 && output[0] === 0xff && output[1] === 0xfe
-        ? output.subarray(2).toString("utf16le")
-        : output.toString("utf8");
-    return text.replace(/^\uFEFF/, "").trim();
-  } catch {
-    return "";
-  }
-}
-
-function envValue(name: string) {
-  const fromUser = windowsUserEnv(name);
-  if (fromUser.length > 0) return fromUser;
-  return process.env[name]?.trim() ?? "";
-}
-
 function credentials() {
-  const id = envValue("KROGER_CLIENT_ID");
-  const secret = envValue("KROGER_CLIENT_SECRET");
+  const id = userEnv("KROGER_CLIENT_ID");
+  const secret = userEnv("KROGER_CLIENT_SECRET");
   if (!id || !secret) return null;
   return { id, secret };
 }
